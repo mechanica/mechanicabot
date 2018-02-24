@@ -1,0 +1,20 @@
+{
+  "name": "mechanicabot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mechanica Telegram Bot",
+  "main": "index.js",
+  "dependencies": {
+    "debug": "3.1.0",
+    "node-telegram-bot-api": "0.30.0",
+    "ubnt-unifi": "1.0.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": "mechanica/announcer",
+  "author": "Kirill Enykeev <enykeev@mech.sh>",
+  "license": "ISC"
+}
