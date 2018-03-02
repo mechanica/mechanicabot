@@ -1,9 +1,17 @@
+const pkg = require('./package.json');
+const assert = require('assert');
 const TelegramBot = require('node-telegram-bot-api');
 const Unifi = require('ubnt-unifi');
-const debug = require('debug')
+const debug = require('debug');
 
-const LOG = debug('app')
+const LOG = debug('app');
 
+LOG(`Starting ${pkg.name} v${pkg.version}`);
+
+assert(process.env.UNIFI_USERNAME, 'UNIFI_USERNAME is not defined')
+assert(process.env.UNIFI_PASSWORD, 'UNIFI_PASSWORD is not defined')
+assert(process.env.UNIFI_AP_MAC, 'UNIFI_AP_MAC is not defined')
+assert(process.env.TELEGRAM_TOKEN, 'TELEGRAM_TOKEN is not defined')
 
 function parseNote(note) {
   if (!note) {
@@ -47,16 +55,21 @@ unifi.on('ctrl.error', (err) => LOG('error', err));
 
 unifi.on('wu.connected', async (event) => {
   const { data } = await unifi.get(`stat/sta/${event.user}`);
+  const { ap_mac, note } = data[0];
 
-  const name = parseNote(data[0].note);
+  const name = parseNote(note);
 
-  if (name) {
+  if (name && ap_mac === process.env.UNIFI_AP_MAC) {
     LOG(`add visitor ${event.user} with name ${name}`);
     visitors[event.user] = { name };
   }
 });
 
 unifi.on('wu.disconnected', (event) => {
+  if (!visitors[event.user]) {
+    return;
+  }
+
   const { name } = visitors[event.user];
 
   LOG(`remove visitor ${event.user} with name ${name}`);
@@ -65,10 +78,10 @@ unifi.on('wu.disconnected', (event) => {
 
 unifi.get('stat/sta')
   .then(({ data }) => {
-    for (const { mac, note } of data) {
+    for (const { ap_mac, mac, note } of data) {
       const name = parseNote(note);
 
-      if (name) {
+      if (name && ap_mac === process.env.UNIFI_AP_MAC) {
         LOG(`add visitor ${mac} with name ${name}`);
 
         visitors[mac] = { name };
