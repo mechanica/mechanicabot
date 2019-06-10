@@ -5,20 +5,21 @@ const Unifi = require('ubnt-unifi');
 const debug = require('debug');
 
 const LOG = debug('app');
+const POLLING_INTERVAL = 60;
 
 LOG(`Starting ${pkg.name} v${pkg.version}`);
 
-assert(process.env.UNIFI_USERNAME, 'UNIFI_USERNAME is not defined')
-assert(process.env.UNIFI_PASSWORD, 'UNIFI_PASSWORD is not defined')
-assert(process.env.UNIFI_AP_MAC, 'UNIFI_AP_MAC is not defined')
-assert(process.env.TELEGRAM_TOKEN, 'TELEGRAM_TOKEN is not defined')
+assert(process.env.UNIFI_USERNAME, 'UNIFI_USERNAME is not defined');
+assert(process.env.UNIFI_PASSWORD, 'UNIFI_PASSWORD is not defined');
+assert(process.env.UNIFI_AP_MAC, 'UNIFI_AP_MAC is not defined');
+assert(process.env.TELEGRAM_TOKEN, 'TELEGRAM_TOKEN is not defined');
 
 function parseNote(note) {
   if (!note) {
     return false;
   }
 
-  const match = note.match(/user:([\wа-яА-Я]+)/u);
+  const match = note.match(/user:(.+)/u);
   if (!match) {
     return false;
   }
@@ -27,7 +28,6 @@ function parseNote(note) {
 
   return name;
 }
-
 
 const unifi = new Unifi({
   host: 'ctrl.mech.sh',
@@ -39,58 +39,36 @@ const unifi = new Unifi({
 });
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, {
-  polling: true
+  polling: true,
 });
 
-const visitors = {};
+let visitors = [];
 
-unifi.on('**', function (...args) {
-  debug('unifi')('incoming event:', this.event, args);
-});
+function updateUsers() => {
+  LOG('Refreshing the user list.');
+  unifi.get('stat/sta')
+    .then(({ data }) => {
+      const names = new Set();
+      for (const { ap_mac, mac, note } of data) {
+        const name = parseNote(note);
 
-unifi.on('ctrl.connect', () => LOG('connected'));
-unifi.on('ctrl.disconnect', () => LOG('disconnected'));
-unifi.on('ctrl.reconnect', () => LOG('reconnect'));
-unifi.on('ctrl.error', (err) => LOG('error', err));
-
-unifi.on('wu.connected', async (event) => {
-  const { data } = await unifi.get(`stat/sta/${event.user}`);
-  const { ap_mac, note } = data[0];
-
-  const name = parseNote(note);
-
-  if (name && ap_mac === process.env.UNIFI_AP_MAC) {
-    LOG(`add visitor ${event.user} with name ${name}`);
-    visitors[event.user] = { name };
-  }
-});
-
-unifi.on('wu.disconnected', (event) => {
-  if (!visitors[event.user]) {
-    return;
-  }
-
-  const { name } = visitors[event.user];
-
-  LOG(`remove visitor ${event.user} with name ${name}`);
-  delete visitors[event.user];
-});
-
-unifi.get('stat/sta')
-  .then(({ data }) => {
-    for (const { ap_mac, mac, note } of data) {
-      const name = parseNote(note);
-
-      if (name && ap_mac === process.env.UNIFI_AP_MAC) {
-        LOG(`add visitor ${mac} with name ${name}`);
-
-        visitors[mac] = { name };
+        if (name && ap_mac === process.env.UNIFI_AP_MAC) {
+          LOG(`Visitor: ${mac} with name ${name}`);
+          names.add(name);
+        }
       }
-    }
-  });
+      visitors = Array.from(names);
+      LOG('User list refresh complete.');
+    });
+};
 
 bot.onText(/\/(whoshome|whosthere)/, (msg) => {
-  const names = Object.values(visitors).map(e => e.name)
-
-  bot.sendMessage(msg.chat.id, `*Сейчас в офисе:*\n${names.join('\n')}`, { parse_mode: 'Markdown' });
+  if (!visitors.length) {
+    bot.sendMessage(msg.chat.id, 'В офисе, кажется, никого.');
+    return;
+  }
+  bot.sendMessage(msg.chat.id, `*Сейчас в офисе:*\n${visitors.join('\n')}`, { parse_mode: 'Markdown' });
 });
+
+updateUsers();
+setInterval(updateUsers, USERLIST_POLLING_INTERVAL * 1000);
